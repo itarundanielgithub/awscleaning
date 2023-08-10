@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# Generate a random bucket name. Prefixing with a static string to ensure it begins with a letter.
+BUCKET_NAME="trail-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+
+aws s3api create-bucket --bucket $BUCKET_NAME --region us-east-1  # Change region if needed
+
+aws logs create-log-group --log-group-name 'arun-logs'
+loggroup_arn=$(aws logs describe-log-groups --log-group-name-prefix arun-logs --query 'logGroups[0].arn' --output text)
+
+echo "{
+    \"Version\": \"2012-10-17\",
+    \"Statement\": [
+        {
+            \"Sid\": \"AWSCloudTrailWrite\",
+            \"Effect\": \"Allow\",
+            \"Principal\": {
+              \"Service\": \"cloudtrail.amazonaws.com\"
+            },
+            \"Action\": \"s3:*\",
+            \"Resource\": [\"arn:aws:s3:::$BUCKET_NAME\", \"arn:aws:s3:::$BUCKET_NAME/*\"]
+        }
+    ]
+}" > bucketpolicy.json
+
+aws s3api put-bucket-policy --bucket $BUCKET_NAME --policy file://bucketpolicy.json
+
+echo "{
+    \"Version\": \"2012-10-17\",
+    \"Statement\": [
+        {
+            \"Effect\": \"Allow\",
+            \"Principal\": {
+              \"Service\": \"cloudtrail.amazonaws.com\"
+            },
+            \"Action\": \"sts:AssumeRole\"
+        }
+    ]
+}" > trailrole.json
+
+aws iam create-role --role-name trailrole --assume-role-policy-document file://trailrole.json
+
+awsid=$(aws sts get-caller-identity --query 'Account' --output text)
+
+echo "{
+    \"Version\": \"2012-10-17\",
+    \"Statement\": [
+    {
+      
+            \"Effect\": \"Allow\",
+      \"Action\": [
+        \"logs\": \"CreateLogStream\"
+      ],
+      \"Resource\": [
+        \"arn:aws:logs:us-east-1:$awsid:log-group:arun-logs:log-stream:"${awsid}"_CloudTrail_us-east-1*\"
+      ]
+    },
+    {
+      
+            \"Effect\": \"Allow\",
+     \"Action\": [
+        \"logs\": \"PutLogEvents\"
+      ],
+      \"Resource\": [
+        \"arn:aws:logs:us-east-1:$awsid:log-group:arun-logs:log-stream:"${awsid}"_CloudTrail_us-east-1*\"
+      ]
+    }
+  ]
+}" > trailpolicy.json
+
+
+aws iam create-policy --policy-name trailpolicy --policy-document file://trailpolicy.json
+
+trailpolicy_arn=$(aws iam list-policies --query 'Policies[?PolicyName==`trailpolicy`].Arn' --output text)
+
+aws iam attach-role-policy --role-name trailrole --policy-arn $trailpolicy_arn
+
+trailrole_arn=$(aws iam get-role --role-name trailrole --query 'Role.Arn' --output text)
+
+aws cloudtrail create-trail --name arun0213cloudtrail --s3-bucket-name $BUCKET_NAME --no-is-multi-region-trail --cloud-watch-logs-role-arn $trailrole_arn --cloud-watch-logs-log-group-arn $loggroup_arn
+
+aws cloudtrail start-logging --name arun0213cloudtrail
