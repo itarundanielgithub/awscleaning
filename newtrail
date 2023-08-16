@@ -2,7 +2,6 @@
 
 # Generate a random bucket name. Prefixing with a static string to ensure it begins with a letter.
 BUCKET_NAME="trail-$(uuidgen | tr '[:upper:]' '[:lower:]')"
-
 aws s3api create-bucket --bucket $BUCKET_NAME --region us-east-1  # Change region if needed
 
 aws logs create-log-group --log-group-name 'arun-logs'
